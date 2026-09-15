@@ -1,14 +1,14 @@
 apiVersion: network.upcloud.polarsquad.com/v1alpha1
-kind: Network
+kind: Router
 metadata:
   labels:
     app.kubernetes.io/name: upcloud-operator
     app.kubernetes.io/managed-by: kustomize
-  name: network-sample
+  name: router-sample
 spec:
-  zone: fi-hel1
-  ipNetworks:
-    - address: 10.1.0.0/24
-      dhcp: true
-  routerRef:
-    name: router-sample
+  staticRoutes:
+    - name: to-office
+      route: 10.9.0.0/16
+      nexthop: 10.0.0.1
+  labels:
+    env: demo

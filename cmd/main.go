@@ -37,7 +37,9 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	databasev1alpha1 "github.com/polarsquad/upcloud-operator/api/database/v1alpha1"
 	networkv1alpha1 "github.com/polarsquad/upcloud-operator/api/network/v1alpha1"
+	databasecontroller "github.com/polarsquad/upcloud-operator/internal/controller/database"
 	networkcontroller "github.com/polarsquad/upcloud-operator/internal/controller/network"
 	// +kubebuilder:scaffold:imports
 )
@@ -51,6 +53,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(networkv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(databasev1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -192,6 +195,18 @@ func main() {
 	}
 	if err := networkcontroller.SetupRouterController(mgr, upcloudSvc); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Router")
+		os.Exit(1)
+	}
+	if err := databasecontroller.SetupManagedDatabaseController(mgr, upcloudSvc); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ManagedDatabase")
+		os.Exit(1)
+	}
+	if err := databasecontroller.SetupManagedDatabaseUserController(mgr, upcloudSvc); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ManagedDatabaseUser")
+		os.Exit(1)
+	}
+	if err := databasecontroller.SetupManagedDatabaseLogicalDatabaseController(mgr, upcloudSvc); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ManagedDatabaseLogicalDatabase")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

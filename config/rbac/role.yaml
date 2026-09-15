@@ -5,6 +5,49 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - database.upcloud.polarsquad.com
+  resources:
+  - manageddatabaselogicaldatabases
+  - manageddatabases
+  - manageddatabaseusers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - database.upcloud.polarsquad.com
+  resources:
+  - manageddatabaselogicaldatabases/finalizers
+  - manageddatabases/finalizers
+  - manageddatabaseusers/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - database.upcloud.polarsquad.com
+  resources:
+  - manageddatabaselogicaldatabases/status
+  - manageddatabases/status
+  - manageddatabaseusers/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - network.upcloud.polarsquad.com
   resources:
   - networks

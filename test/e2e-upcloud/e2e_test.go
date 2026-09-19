@@ -93,6 +93,7 @@ func resolveRepoRoot() string {
 type probe struct {
 	kind       string
 	uuid       string
+	crUID      string // metadata.uid of the owning CR; the k8s-uid label value
 	verifiable bool
 	fetch      func(context.Context, string) error // returns the Get* call's error
 }
@@ -163,9 +164,8 @@ var _ = AfterSuite(func() {
 	// sweeps and the gone-verification would iterate an empty list while
 	// real resources from the failed spec are still being provisioned.
 	var failures []string
-	record := NewGomega(func(message string, _ ...int) {
-		failures = append(failures, message)
-	})
+	recordFailure := func(message string) { failures = append(failures, message) }
+	record := NewGomega(func(message string, _ ...int) { recordFailure(message) })
 	By("collecting identities from every managed CR still in the run namespace")
 	collectLeakedCRs()
 	By("dumping diagnostics while the cluster is still up")
@@ -175,9 +175,9 @@ var _ = AfterSuite(func() {
 	By("waiting for the CRs to be removed (finalizers drive the real delete)")
 	pollCRsGone(record, 20*time.Minute)
 	By("sweeping any leftover UpCloud resource labelled by this run")
-	sweepLabelled()
+	sweepLabelled(recordFailure)
 	By("sweeping any detached floating IP left in the sample zone")
-	sweepDetachedFloatingIPs()
+	sweepDetachedFloatingIPs(recordFailure)
 	By("verifying the UpCloud API confirms everything is gone")
 	pollGone(record, 5*time.Minute)
 	By("undeploying the operator and uninstalling the CRDs")
@@ -304,7 +304,9 @@ func collectProbes() {
 		if err != nil || out == "" {
 			return
 		}
-		probes = append(probes, probe{kind: kind, uuid: out, verifiable: true, fetch: fetch})
+		uid, _ := runCmd(exec.Command("kubectl", "get", kind, name, "-n", namespace,
+			"-o", "jsonpath={.metadata.uid}"))
+		probes = append(probes, probe{kind: kind, uuid: out, crUID: trim(uid), verifiable: true, fetch: fetch})
 		_, _ = fmt.Fprintf(GinkgoWriter, "collected %s %s -> %s\n", kind, name, out)
 	}
 	add("router", "router-sample", "{.status.uuid}",
@@ -427,18 +429,24 @@ func allProbesGone(ctx context.Context) (bool, string) {
 // sweepLabelled deletes any UpCloud network or router still carrying the
 // operator's managed-by label with a k8s-uid this run created (an orphan
 // left behind, for example by a crash between create and finalizer delete).
-func sweepLabelled() {
+// The sweep is a cost safety net, not a substitute for the operator's
+// delete: every resource it has to remove is reported, with the state of
+// its CR, so the failure points at the operator's Delete.
+func sweepLabelled(report func(string)) {
 	ctx := context.Background()
 	known := map[string]bool{}
 	for _, p := range probes {
-		known[p.uuid] = true
+		if p.crUID != "" {
+			known[p.crUID] = true
+		}
 	}
 	if nets, err := svc.GetNetworks(ctx); err == nil {
 		for i := range nets.Networks {
 			n := &nets.Networks[i]
 			if hasManagedBy(n.Labels) && known[uidOf(n.Labels)] {
-				_, _ = fmt.Fprintf(GinkgoWriter, "sweeping leftover network %s\n", n.UUID)
-				_ = svc.DeleteNetwork(ctx, &upcloudrequest.DeleteNetworkRequest{UUID: n.UUID})
+				state := crStateOf("network", uidOf(n.Labels))
+				derr := svc.DeleteNetwork(ctx, &upcloudrequest.DeleteNetworkRequest{UUID: n.UUID})
+				report(leftoverMessage("network", n.UUID, state, derr))
 			}
 		}
 	}
@@ -446,11 +454,50 @@ func sweepLabelled() {
 		for i := range rts.Routers {
 			r := &rts.Routers[i]
 			if hasManagedBy(r.Labels) && known[uidOf(r.Labels)] {
-				_, _ = fmt.Fprintf(GinkgoWriter, "sweeping leftover router %s\n", r.UUID)
-				_ = svc.DeleteRouter(ctx, &upcloudrequest.DeleteRouterRequest{UUID: r.UUID})
+				state := crStateOf("router", uidOf(r.Labels))
+				derr := svc.DeleteRouter(ctx, &upcloudrequest.DeleteRouterRequest{UUID: r.UUID})
+				report(leftoverMessage("router", r.UUID, state, derr))
 			}
 		}
 	}
+}
+
+// crStateOf describes the CR that owns a leftover UpCloud resource, from
+// the CR list of its kind (matched by metadata.uid, the k8s-uid label).
+func crStateOf(kind, uid string) string {
+	out, err := runCmd(exec.Command("kubectl", "get", kind, "-n", namespace, "-o",
+		"jsonpath={range .items[*]}{.metadata.uid}{'\\t'}{.metadata.name}{'\\t'}"+
+			"{.metadata.deletionTimestamp}{'\\t'}{.metadata.finalizers}{'\\t'}"+
+			"{.status.conditions[?(@.type=='Ready')].reason}{'\\t'}"+
+			"{.status.conditions[?(@.type=='Ready')].message}{'\\n'}{end}"))
+	if err != nil {
+		return fmt.Sprintf("its CR state could not be read (%v)", err)
+	}
+	return crStateFor(out, uid)
+}
+
+// crStateFor picks the tab-separated CR row with the given uid out of the
+// crStateOf output and words what it says about why the delete did not
+// happen.
+func crStateFor(rows, uid string) string {
+	for _, line := range strings.Split(rows, "\n") {
+		f := strings.SplitN(line, "\t", 6)
+		if len(f) < 6 || f[0] != uid {
+			continue
+		}
+		return fmt.Sprintf("its CR %s still exists (deletionTimestamp=%q finalizers=%s Ready=%s: %s)",
+			f[1], f[2], f[3], f[4], f[5])
+	}
+	return "its CR is already gone, so the finalizer was removed without the resource being deleted"
+}
+
+// leftoverMessage words one resource the operator should have deleted.
+func leftoverMessage(kind, id, crState string, deleteErr error) string {
+	msg := fmt.Sprintf("operator left %s %s on UpCloud: %s", kind, id, crState)
+	if deleteErr != nil {
+		msg += fmt.Sprintf("; the sweep's own delete also failed: %v", deleteErr)
+	}
+	return msg
 }
 
 func hasManagedBy(labels []upcloud.Label) bool {
@@ -526,16 +573,18 @@ func collectLeakedCRs() {
 			continue
 		}
 		out, err := runCmd(exec.Command("kubectl", "get", k.name, "-n", namespace,
-			"-o", "jsonpath={.items[*].status."+k.identField+"}"))
+			"-o", "jsonpath={range .items[*]}{.metadata.uid}{'\\t'}{.status."+k.identField+"}{'\\n'}{end}"))
 		if err != nil {
 			continue // kind not installed in this run, or CRD already gone
 		}
-		for _, ident := range strings.Fields(out) {
+		for _, line := range strings.Split(out, "\n") {
+			uid, ident, _ := strings.Cut(line, "\t")
+			ident = trim(ident)
 			if ident == "" || known[k.name+"/"+ident] {
 				continue
 			}
 			known[k.name+"/"+ident] = true
-			probes = append(probes, probe{kind: k.name, uuid: ident, verifiable: k.verifiable, fetch: fetchFor(k.name, k.verifiable)})
+			probes = append(probes, probe{kind: k.name, uuid: ident, crUID: uid, verifiable: k.verifiable, fetch: fetchFor(k.name, k.verifiable)})
 			_, _ = fmt.Fprintf(GinkgoWriter, "collected %s %s -> %s (leak pass)\n", k.name, crName(k.name), ident)
 		}
 	}
@@ -585,7 +634,7 @@ func fetchFor(kind string, verifiable bool) func(context.Context, string) error 
 // sample zone, and not carried by any collected probe (a probed address is
 // the CR/finalizer path's business and waitForGone verifies it). This
 // cannot release attached or non-floating addresses.
-func sweepDetachedFloatingIPs() {
+func sweepDetachedFloatingIPs(report func(string)) {
 	ctx := context.Background()
 	ips, err := svc.GetIPAddresses(ctx)
 	if err != nil {
@@ -603,8 +652,8 @@ func sweepDetachedFloatingIPs() {
 		if ip.Zone != sampleZone || ip.ServerUUID != "" || ip.Floating != upcloud.True || probed[ip.Address] {
 			continue
 		}
-		_, _ = fmt.Fprintf(GinkgoWriter, "sweeping detached floating IP %s\n", ip.Address)
-		_ = svc.ReleaseIPAddress(ctx, &upcloudrequest.ReleaseIPAddressRequest{IPAddress: ip.Address})
+		derr := svc.ReleaseIPAddress(ctx, &upcloudrequest.ReleaseIPAddressRequest{IPAddress: ip.Address})
+		report(leftoverMessage("floating IP", ip.Address, "no CR of this run tracks it", derr))
 	}
 }
 

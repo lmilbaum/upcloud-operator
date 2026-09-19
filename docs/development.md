@@ -151,7 +151,11 @@ recorded failures:
    real UpCloud deletes.
 4. Wait for the CRs to disappear (up to 20 minutes).
 5. Sweep leftover networks, routers and floating IPs directly through the
-   UpCloud API. This is a cost safety net, not part of what is tested.
+   UpCloud API. This is a cost safety net, not part of what is tested, so
+   it never hides an operator bug: each resource it has to remove is
+   reported with the state of its CR (still present with its finalizers
+   and Ready condition, or already gone) and the sweep's own delete error,
+   and the suite fails at the end. Fix the operator's Delete, not the sweep.
 6. Verify through the UpCloud API that everything is gone.
 7. Undeploy the operator and delete the kind cluster.
 

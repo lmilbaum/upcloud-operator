@@ -62,6 +62,14 @@ vet: ## Run go vet against code.
 .PHONY: test
 test: manifests generate fmt vet setup-envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
+	$(MAKE) test-e2e-helpers
+
+# Exercise harness helpers, never the cluster or real-API entrypoints.
+# Clear credentials as a second guard against accidental real-API execution.
+.PHONY: test-e2e-helpers
+test-e2e-helpers:
+	UPCLOUD_TOKEN= UPCLOUD_USERNAME= UPCLOUD_PASSWORD= go test -tags=e2e_upcloud ./test/e2e-upcloud/ -skip '^TestE2EUpCloud$$'
+	UPCLOUD_TOKEN= UPCLOUD_USERNAME= UPCLOUD_PASSWORD= go test -tags=e2e ./test/e2e/ -skip '^TestE2E$$'
 
 # TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
@@ -69,7 +77,7 @@ test: manifests generate fmt vet setup-envtest ## Run tests.
 # - KUBECTL_KUBERC=true
 # CertManager is installed by default; skip with:
 # - CERT_MANAGER_INSTALL_SKIP=true
-KIND_CLUSTER ?= upcloud-operator-test-e2e
+KIND_CLUSTER ?= uck-test-e2e
 
 .PHONY: setup-test-e2e
 setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
@@ -156,10 +164,10 @@ PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
 docker-buildx: ## Build and push docker image for the manager for cross-platform support
 	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
-	- $(CONTAINER_TOOL) buildx create --name upcloud-operator-builder
-	$(CONTAINER_TOOL) buildx use upcloud-operator-builder
+	- $(CONTAINER_TOOL) buildx create --name uck-builder
+	$(CONTAINER_TOOL) buildx use uck-builder
 	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
-	- $(CONTAINER_TOOL) buildx rm upcloud-operator-builder
+	- $(CONTAINER_TOOL) buildx rm uck-builder
 	rm Dockerfile.cross
 
 .PHONY: build-installer

@@ -34,16 +34,24 @@ import (
 )
 
 // namespace where the project is deployed in
-const namespace = "upcloud-operator-system"
+const namespace = "uck-system"
 
 // serviceAccountName created for the project
-const serviceAccountName = "upcloud-operator-controller-manager"
+const serviceAccountName = "uck-controller-manager"
 
 // metricsServiceName is the name of the metrics service of the project
-const metricsServiceName = "upcloud-operator-controller-manager-metrics-service"
+const metricsServiceName = "uck-controller-manager-metrics-service"
 
 // metricsRoleBindingName is the name of the RBAC that will be created to allow get the metrics data
-const metricsRoleBindingName = "upcloud-operator-metrics-binding"
+const metricsRoleBindingName = "uck-metrics-binding"
+
+// cleanupMetricsBinding removes the cluster-scoped object even when a spec
+// failed before creating it. The runner is injectable for credential-free tests.
+func cleanupMetricsBinding(run func(*exec.Cmd) (string, error)) error {
+	_, err := run(exec.Command("kubectl", "delete", "clusterrolebinding",
+		metricsRoleBindingName, "--ignore-not-found=true"))
+	return err
+}
 
 var _ = Describe("Manager", Ordered, func() {
 	var controllerPodName string
@@ -84,6 +92,9 @@ var _ = Describe("Manager", Ordered, func() {
 	// After all tests have been executed, clean up by undeploying the controller, uninstalling CRDs,
 	// and deleting the namespace.
 	AfterAll(func() {
+		By("cleaning up the metrics ClusterRoleBinding")
+		metricsCleanupErr := cleanupMetricsBinding(utils.Run)
+
 		By("cleaning up the curl pod for metrics")
 		cmd := exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace)
 		_, _ = utils.Run(cmd)
@@ -99,6 +110,9 @@ var _ = Describe("Manager", Ordered, func() {
 		By("removing manager namespace")
 		cmd = exec.Command("kubectl", "delete", "ns", namespace)
 		_, _ = utils.Run(cmd)
+
+		// Report this only after the remaining cleanup has had a chance to run.
+		Expect(metricsCleanupErr).NotTo(HaveOccurred(), "Failed to delete the metrics ClusterRoleBinding")
 	})
 
 	// After each test, check for failures and collect logs, events,
@@ -183,7 +197,7 @@ var _ = Describe("Manager", Ordered, func() {
 		It("should ensure the metrics endpoint is serving metrics", func() {
 			By("creating a ClusterRoleBinding for the service account to allow access to metrics")
 			cmd := exec.Command("kubectl", "create", "clusterrolebinding", metricsRoleBindingName,
-				"--clusterrole=upcloud-operator-metrics-reader",
+				"--clusterrole=uck-metrics-reader",
 				fmt.Sprintf("--serviceaccount=%s:%s", namespace, serviceAccountName),
 			)
 			_, err := utils.Run(cmd)

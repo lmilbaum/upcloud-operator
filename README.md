@@ -268,6 +268,8 @@ v0.1 (the operator does not manage Cloud Servers).
 
 ## Docs
 
+- [docs/edge-appliance/glossary.md](docs/edge-appliance/glossary.md): starter
+  terminology for Edge Appliance work in UCK.
 - [docs/migration-to-uck.md](docs/migration-to-uck.md): renamed identifiers,
   upgrade steps, compatibility boundaries, and rollback.
 - [docs/resources.md](docs/resources.md): every kind, its UpCloud

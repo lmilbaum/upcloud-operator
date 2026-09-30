@@ -81,7 +81,9 @@ type fakeSweeper struct {
 	deletedNetworkUUIDs []string
 }
 
-func (f *fakeSweeper) GetManagedDatabases(context.Context, *request.GetManagedDatabasesRequest) ([]upcloud.ManagedDatabase, error) {
+func (f *fakeSweeper) GetManagedDatabases(
+	context.Context, *request.GetManagedDatabasesRequest,
+) ([]upcloud.ManagedDatabase, error) {
 	return []upcloud.ManagedDatabase{}, nil
 }
 

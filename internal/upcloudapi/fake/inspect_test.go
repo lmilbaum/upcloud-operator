@@ -5,9 +5,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/polarsquad/upcloud-operator/internal/upcloudapi/fake"
 	"github.com/UpCloudLtd/upcloud-go-api/v8/upcloud"
 	"github.com/UpCloudLtd/upcloud-go-api/v8/upcloud/request"
+	"github.com/polarsquad/upcloud-operator/internal/upcloudapi/fake"
 )
 
 func TestInspectIsSafeWithConcurrentMutations(t *testing.T) {
@@ -15,10 +15,8 @@ func TestInspectIsSafeWithConcurrentMutations(t *testing.T) {
 	const key = "test-network"
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 100; i++ {
+	wg.Go(func() {
+		for range 100 {
 			ctx := context.Background()
 			_, _ = api.CreateNetwork(ctx, &request.CreateNetworkRequest{
 				Name: key,
@@ -33,9 +31,9 @@ func TestInspectIsSafeWithConcurrentMutations(t *testing.T) {
 				_ = api.DeleteNetwork(ctx, &request.DeleteNetworkRequest{UUID: uuid})
 			}
 		}
-	}()
+	})
 
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		api.Inspect(func(a *fake.NetworkAPI) {
 			_ = len(a.Networks)
 		})

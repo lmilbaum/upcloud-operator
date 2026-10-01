@@ -148,7 +148,9 @@ func Sweep(ctx context.Context, api API, out, errOut io.Writer) Pass {
 // type without error. A pass the deadline cuts short (all list calls return the
 // context error) is not a complete pass: its counts are discarded and the
 // previous complete pass is kept as last.
-func Drain(ctx context.Context, api API, out, errOut io.Writer, every time.Duration) (first, last Pass, converging bool) {
+func Drain(
+	ctx context.Context, api API, out, errOut io.Writer, every time.Duration,
+) (first, last Pass, converging bool) {
 	everDeleted := false
 	first = Sweep(ctx, api, out, errOut)
 	last = first

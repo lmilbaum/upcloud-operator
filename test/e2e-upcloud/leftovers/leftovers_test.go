@@ -308,5 +308,6 @@ func TestDrainConvergingWhenDeadlineCutsSweepShort(t *testing.T) {
 	// have zeroed Deleted and set ListFailures > 0.
 	assert.Equal(t, 1, last.Deleted, "last should reflect the complete pass 1, not the interrupted pass 2")
 	assert.Equal(t, 0, last.ListFailures)
-	assert.True(t, converging, "account is converging: pass 1 accepted a delete and the last complete pass had no list failures")
+	assert.True(t, converging,
+		"account is converging: pass 1 accepted a delete and the last complete pass had no list failures")
 }

@@ -103,7 +103,7 @@ cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
 	@$(KIND) delete cluster --name $(KIND_CLUSTER)
 
 .PHONY: lint
-lint: golangci-lint verify-crd-kustomization ## Run golangci-lint linter and CRD manifest checks
+lint: golangci-lint verify-crd-kustomization verify-kind-pin ## Run golangci-lint linter, CRD manifest checks and kind pin verification
 	"$(GOLANGCI_LINT)" run
 
 ## verify-crd-kustomization: every generated CRD manifest under
@@ -123,6 +123,24 @@ verify-crd-kustomization:
 		fi; \
 	done; \
 	exit $$missing
+
+## verify-kind-pin: every workflow and devcontainer that downloads kind must
+## use the version pinned in mise.toml, so CI and local dev run the same kind.
+.PHONY: verify-kind-pin
+verify-kind-pin:
+	@want=$$(sed -n 's/^kind = "\(.*\)"$$/\1/p' mise.toml); \
+	if [ -z "$$want" ]; then echo "ERROR: no kind pin found in mise.toml"; exit 1; fi; \
+	files=$$(grep -rl 'kind\.sigs\.k8s\.io/dl/' .github/workflows/ .devcontainer/ 2>/dev/null); \
+	if [ -z "$$files" ]; then echo "ERROR: no file downloads kind; update verify-kind-pin"; exit 1; fi; \
+	bad=0; \
+	for f in $$files; do \
+		got=$$(sed -n 's|.*kind\.sigs\.k8s\.io/dl/v\([0-9.]*\)/kind-.*|\1|p' "$$f" | tail -1); \
+		case "$$got" in \
+			"$$want"|"$$want".*) ;; \
+			*) echo "ERROR: $$f downloads kind '$${got:-unpinned}', mise.toml pins $$want"; bad=1 ;; \
+		esac; \
+	done; \
+	exit $$bad
 
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes

@@ -2,7 +2,7 @@
 [tools]
 go = "1.26"
 kubebuilder = "4.15.0"
-kind = "0.31"
+kind = "0.31.0"
 kubectl = "1.36"
 golangci-lint = "2.12.2"
 

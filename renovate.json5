@@ -19,6 +19,11 @@
       "groupName": "kubernetes go modules"
     },
     {
+      "description": "kind version stays in sync across mise and CI downloads",
+      "matchPackageNames": ["kubernetes-sigs/kind"],
+      "groupName": "kind"
+    },
+    {
       "description": "GitHub Actions in one PR",
       "matchManagers": ["github-actions"],
       "groupName": "github actions"
@@ -48,6 +53,14 @@
       "managerFilePatterns": ["/^Makefile$/"],
       "matchStrings": ["GOLANGCI_LINT_VERSION \\?= (?<currentValue>v[0-9.]+)"],
       "depNameTemplate": "golangci/golangci-lint",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "description": "kind version pin in CI workflows and devcontainer",
+      "managerFilePatterns": ["/.github/workflows/.*\\.yml$/", "/.devcontainer/post-install\\.sh$/"],
+      "matchStrings": ["kind\\.sigs\\.k8s\\.io/dl/(?<currentValue>v[0-9.]+)/kind-"],
+      "depNameTemplate": "kubernetes-sigs/kind",
       "datasourceTemplate": "github-releases"
     }
   ]
